@@ -280,6 +280,11 @@
   ];
 
   var orders = [], rows = [], currentEditingId = null;
+  
+  // Round to 2 decimal places — prevents 1-cent rounding errors
+  function roundMoney(num) {
+    return Math.round((num + Number.EPSILON) * 100) / 100;
+  }
 
   document.getElementById('todayDate').textContent = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
 
@@ -301,9 +306,59 @@
   function deleteRow(id) { rows=rows.filter(function(r){return r.id!==id;}); renderTable(); calculateTotals(); autoSaveForm(); }
 
   // ===== Calc =====
-  function calculateTotals() { var st=rows.reduce(function(s,r){var q=parseFloat(r.qty)||0,p=parseFloat(r.price)||0;return s+q*p;},0); var c=parseFloat(document.getElementById('commission').value)||0,sv=parseFloat(document.getElementById('service').value)||0,t=parseFloat(document.getElementById('transaction').value)||0,p=parseFloat(document.getElementById('platform').value)||0; var cA=st*c/100, sA=st*sv/100, tA=t, tot=st-cA-sA-tA-p; document.getElementById('subtotal').textContent=formatCurrency(st); document.getElementById('commissionAmt').textContent='- '+formatCurrency(cA); document.getElementById('serviceAmt').textContent='- '+formatCurrency(sA); document.getElementById('transactionAmt').textContent='- '+formatCurrency(tA); document.getElementById('platformAmt').textContent='- '+formatCurrency(p); document.getElementById('totalSum').textContent=formatCurrency(tot); }
+    function calculateTotals() {
+    var subtotal = rows.reduce(function(sum, r) {
+      var q = parseFloat(r.qty) || 0;
+      var p = parseFloat(r.price) || 0;
+      return sum + q * p;
+    }, 0);
+    var commission = parseFloat(document.getElementById('commission').value) || 0;
+    var service = parseFloat(document.getElementById('service').value) || 0;
+    var transaction = parseFloat(document.getElementById('transaction').value) || 0;
+    var platform = parseFloat(document.getElementById('platform').value) || 0;
+
+    // Round each deduction to 2 decimal places BEFORE calculating the total
+    var commissionAmt = roundMoney(subtotal * commission / 100);
+    var serviceAmt = roundMoney(subtotal * service / 100);
+    var transactionAmt = roundMoney(transaction);
+    var platformAmt = roundMoney(platform);
+    var total = roundMoney(subtotal - commissionAmt - serviceAmt - transactionAmt - platformAmt);
+
+    document.getElementById('subtotal').textContent = formatCurrency(subtotal);
+    document.getElementById('commissionAmt').textContent = '- ' + formatCurrency(commissionAmt);
+    document.getElementById('serviceAmt').textContent = '- ' + formatCurrency(serviceAmt);
+    document.getElementById('transactionAmt').textContent = '- ' + formatCurrency(transactionAmt);
+    document.getElementById('platformAmt').textContent = '- ' + formatCurrency(platformAmt);
+    document.getElementById('totalSum').textContent = formatCurrency(total);
+  }
   function formatCurrency(n) { return 'RM '+Math.abs(n).toFixed(2); }
-  function computeOrderTotals(o) { var st=o.rows.reduce(function(s,r){return s+(parseFloat(r.qty)||0)*(parseFloat(r.price)||0);},0); var c=parseFloat(o.remarks.commission)||0,sv=parseFloat(o.remarks.service)||0,t=parseFloat(o.remarks.transaction)||0,p=parseFloat(o.remarks.platform)||0; var cA=st*c/100, sA=st*sv/100, tA=t, tot=st-cA-sA-tA-p; return {subtotal:st,commissionAmt:cA,serviceAmt:sA,transactionAmt:tA,platform:p,total:tot,commission:c,service:sv}; }
+    function computeOrderTotals(order) {
+    var subtotal = order.rows.reduce(function(s, r) {
+      return s + (parseFloat(r.qty) || 0) * (parseFloat(r.price) || 0);
+    }, 0);
+    var commission = parseFloat(order.remarks.commission) || 0;
+    var service = parseFloat(order.remarks.service) || 0;
+    var transaction = parseFloat(order.remarks.transaction) || 0;
+    var platform = parseFloat(order.remarks.platform) || 0;
+
+    // Round each deduction to 2 decimal places BEFORE calculating the total
+    var commissionAmt = roundMoney(subtotal * commission / 100);
+    var serviceAmt = roundMoney(subtotal * service / 100);
+    var transactionAmt = roundMoney(transaction);
+    var platformAmt = roundMoney(platform);
+    var total = roundMoney(subtotal - commissionAmt - serviceAmt - transactionAmt - platformAmt);
+
+    return {
+      subtotal: subtotal,
+      commissionAmt: commissionAmt,
+      serviceAmt: serviceAmt,
+      transactionAmt: transactionAmt,
+      platform: platformAmt,
+      total: total,
+      commission: commission,
+      service: service
+    };
+  }
 
   // ===== Orders =====
   function generateNextOrderId() { var ns=orders.map(function(o){var m=(o.orderId||'').match(/(\d+)/);return m?parseInt(m[1]):0;}); var mx=ns.length?Math.max.apply(null,ns):0; return 'ORD-'+String(mx+1).padStart(3,'0'); }
