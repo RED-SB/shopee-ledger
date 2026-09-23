@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Order Ledger — Multi-Order Registry</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600;9..144,900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #efe6d2; --paper: #fbf4e1; --paper-2: #f5edd6;
+    --ink: #1c1610; --ink-2: #3a2e1f; --ink-soft: #6b5836; --muted: #9a8458;
+    --accent: #c4582b; --accent-2: #e8a472; --green: #2d4a36; --gold: #b8893a;
+    --border: #c9b78f; --border-strong: #8c7757;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'JetBrains Mono', monospace; background: var(--bg); color: var(--ink);
+    background-image:
+      radial-gradient(ellipse at top left, rgba(196, 88, 43, 0.07) 0%, transparent 50%),
+      radial-gradient(ellipse at bottom right, rgba(45, 74, 54, 0.08) 0%, transparent 50%),
+      repeating-linear-gradient(0deg, transparent, transparent 32px, rgba(140, 119, 87, 0.045) 32px, rgba(140, 119, 87, 0.045) 33px),
+      repeating-linear-gradient(90deg, transparent, transparent 32px, rgba(140, 119, 87, 0.045) 32px, rgba(140, 119, 87, 0.045) 33px);
+    background-attachment: fixed; min-height: 100vh;
+  }
+  .serif { font-family: 'Fraunces', serif; }
+  .paper { background: var(--paper); background-image: repeating-linear-gradient(0deg, transparent, transparent 32px, rgba(28, 22, 16, 0.025) 32px, rgba(28, 22, 16, 0.025) 33px); border: 1px solid var(--border); box-shadow: 0 1px 0 rgba(255,255,255,0.6) inset, 0 1px 2px rgba(28, 22, 16, 0.08), 0 12px 30px -10px rgba(28, 22, 16, 0.18); position: relative; }
+  .paper::before { content: ''; position: absolute; top: 8px; left: 8px; right: 8px; bottom: 8px; border: 1px solid rgba(28, 22, 16, 0.06); pointer-events: none; }
+  .stamp { border: 2.5px solid var(--accent); color: var(--accent); font-family: 'Fraunces', serif; font-weight: 900; letter-spacing: 0.15em; padding: 6px 14px; transform: rotate(-7deg); display: inline-block; background: rgba(251, 244, 225, 0.5); box-shadow: 0 0 0 2px rgba(196, 88, 43, 0.1); font-size: 12px; }
+  .stamp-green { border-color: var(--green); color: var(--green); }
+  .field-input { background: transparent; border: none; border-bottom: 1px dashed var(--border); outline: none; font-family: inherit; color: var(--ink); padding: 6px 4px; width: 100%; transition: all 0.2s; font-size: 13px; }
+  .field-input:focus { border-bottom-color: var(--accent); background: rgba(196, 88, 43, 0.05); }
+  .field-input::placeholder { color: var(--muted); opacity: 0.5; }
+  .notes-input { background: transparent; border: 1px dashed var(--border); outline: none; font-family: 'JetBrains Mono', monospace; color: var(--ink); padding: 10px 12px; width: 100%; transition: all 0.2s; font-size: 13px; line-height: 1.6; resize: vertical; min-height: 80px; display: block; }
+  .notes-input:focus { border-color: var(--accent); background: rgba(196, 88, 43, 0.04); }
+  .notes-input::placeholder { color: var(--muted); opacity: 0.5; }
+  .btn { font-family: 'JetBrains Mono', monospace; font-weight: 500; letter-spacing: 0.05em; padding: 10px 18px; cursor: pointer; transition: all 0.2s; border: 1px solid var(--ink); display: inline-flex; align-items: center; gap: 8px; font-size: 12px; background: transparent; color: var(--ink); }
+  .btn-dark { background: var(--ink); color: var(--paper); }
+  .btn-dark:hover { background: var(--accent); border-color: var(--accent); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(196, 88, 43, 0.3); }
+  .btn-ghost { background: transparent; color: var(--ink); }
+  .btn-ghost:hover { background: var(--ink); color: var(--paper); }
+  .row-num { font-family: 'Fraunces', serif; font-weight: 600; color: var(--accent); font-size: 18px; }
+  .item-grid { display: grid; grid-template-columns: 40px 1.2fr 2fr 80px 70px 100px 36px; gap: 10px; align-items: center; padding: 8px; }
+  @media (max-width: 640px) { .item-grid { grid-template-columns: 30px 1fr 60px 90px 30px; grid-template-areas: "no code qty price del" "no desc desc desc desc" "no pack pack pack pack"; gap: 6px 10px; } .item-grid > :nth-child(1) { grid-area: no; } .item-grid > :nth-child(2) { grid-area: code; } .item-grid > :nth-child(3) { grid-area: desc; } .item-grid > :nth-child(4) { grid-area: pack; } .item-grid > :nth-child(5) { grid-area: qty; } .item-grid > :nth-child(6) { grid-area: price; } .item-grid > :nth-child(7) { grid-area: del; } .header-grid { display: none !important; } }
+  .row { transition: background 0.3s; }
+  .row:hover { background: rgba(196, 88, 43, 0.04); }
+  .delete-btn { opacity: 0.3; transition: all 0.2s; background: transparent; border: none; color: var(--ink-soft); cursor: pointer; font-size: 20px; line-height: 1; }
+  .row:hover .delete-btn { opacity: 1; }
+  .delete-btn:hover { color: var(--accent); }
+  .corner-note { position: relative; }
+  .corner-note::before { content: ''; position: absolute; top: -1px; left: -1px; width: 30px; height: 30px; border-top: 2px solid var(--accent); border-left: 2px solid var(--accent); }
+  .corner-note::after { content: ''; position: absolute; bottom: -1px; right: -1px; width: 30px; height: 30px; border-bottom: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+  .totals-line { border-top: 1px dashed var(--border-strong); padding-top: 12px; }
+  .grand-total { background: var(--ink); color: var(--paper); padding: 16px 20px; border: 1px solid var(--ink); display: flex; justify-content: space-between; align-items: center; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .fade-up { animation: fadeUp 0.3s ease; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; display: inline-block; }
+  .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 12px 22px; z-index: 9999; animation: fadeUp 0.3s; font-size: 13px; letter-spacing: 0.05em; border: 1px solid var(--accent); box-shadow: 0 8px 24px rgba(28, 22, 16, 0.3); }
+  .ribbon { position: absolute; top: -10px; left: 24px; background: var(--accent); color: var(--paper); padding: 4px 14px; font-family: 'Fraunces', serif; font-weight: 700; font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; z-index: 2; }
+  .ribbon-green { background: var(--green); }
+  .ribbon-dark { background: var(--ink); }
+  .nav-pill { border: 1px solid var(--border); padding: 4px 12px; font-size: 11px; color: var(--ink-soft); letter-spacing: 0.1em; text-transform: uppercase; background: rgba(255, 255, 255, 0.4); display: inline-block; }
+  .nav-pill-accent { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+  .order-id-input { font-family: 'Fraunces', serif; font-weight: 900; font-size: 32px; background: transparent; border: none; border-bottom: 2px solid var(--ink); outline: none; color: var(--ink); padding: 4px 8px; width: 220px; max-width: 100%; letter-spacing: 0.02em; line-height: 1.1; }
+  .order-id-input:focus { border-bottom-color: var(--accent); }
+  .order-id-input::placeholder { color: var(--muted); opacity: 0.4; }
+  .order-card { background: var(--paper); border: 1px solid var(--border); border-left: 4px solid var(--accent); padding: 16px; transition: all 0.2s; position: relative; }
+  .order-card:hover { border-left-color: var(--green); transform: translateY(-2px); box-shadow: 0 8px 20px -8px rgba(28, 22, 16, 0.2); }
+  .order-card.editing { border-left-color: var(--green); background: rgba(45, 74, 54, 0.04); box-shadow: 0 0 0 2px rgba(45, 74, 54, 0.15); }
+  .order-card .order-actions { display: flex; gap: 6px; margin-top: 12px; }
+  .mini-btn { font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 5px 10px; border: 1px solid var(--ink); background: transparent; color: var(--ink); cursor: pointer; transition: all 0.15s; letter-spacing: 0.05em; text-transform: uppercase; }
+  .mini-btn:hover { background: var(--ink); color: var(--paper); }
+  .mini-btn.danger:hover { background: var(--accent); border-color: var(--accent); }
+  .submit-section { background: var(--ink); color: var(--paper); padding: 40px 32px; text-align: center; border: 1px solid var(--ink); position: relative; overflow: hidden; }
+  .submit-section::before { content: ''; position: absolute; inset: 8px; border: 1px dashed rgba(251, 244, 225, 0.25); pointer-events: none; }
+  .submit-btn { background: var(--accent); color: var(--paper); border: 2px solid var(--accent); padding: 18px 36px; font-family: 'Fraunces', serif; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; letter-spacing: 0.05em; display: inline-flex; align-items: center; gap: 12px; position: relative; z-index: 1; }
+  .submit-btn:hover { background: var(--paper); color: var(--ink); transform: translateY(-2px); box-shadow: 0 10px 30px rgba(196, 88, 43, 0.4); }
+  .submit-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; box-shadow: none; }
+  .logo-mark { width: 48px; height: 48px; background: var(--ink); color: var(--paper); display: flex; align-items: center; justify-content: center; font-family: 'Fraunces', serif; font-weight: 900; font-size: 28px; position: relative; }
+  .logo-mark::after { content: ''; position: absolute; inset: -4px; border: 1px solid var(--ink); pointer-events: none; }
+  .deco-line { background: repeating-linear-gradient(90deg, var(--ink) 0 4px, transparent 4px 8px); height: 1px; width: 100%; }
+  .empty-state { border: 2px dashed var(--border); padding: 28px; text-align: center; color: var(--muted); font-style: italic; }
+  .hint { font-size: 10px; color: var(--muted); letter-spacing: 0.05em; text-transform: uppercase; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(28, 22, 16, 0.7); z-index: 100; display: flex; align-items: center; justify-content: center; animation: fadeIn 0.2s; backdrop-filter: blur(4px); }
+  .floating-deco { position: fixed; pointer-events: none; z-index: 0; opacity: 0.06; font-family: 'Fraunces', serif; font-weight: 900; font-size: 320px; line-height: 1; color: var(--ink); }
+  .qty-input { font-family: 'Fraunces', serif; font-weight: 600; font-size: 16px; }
+  .pdf-loading-overlay { position: fixed; inset: 0; background: rgba(28, 22, 16, 0.95); z-index: 99999; display: flex; align-items: center; justify-content: center; flex-direction: column; color: #fbf4e1; font-family: monospace; }
+  .pdf-loading-bar { margin-top: 16px; width: 220px; height: 4px; background: rgba(251,244,225,0.15); border-radius: 2px; overflow: hidden; }
+  .pdf-loading-bar-inner { width: 100%; height: 100%; background: #c4582b; animation: pulse 1.2s infinite; }
+  .ac-wrap { position: relative; }
+  .ac-dropdown { position: absolute; top: calc(100% + 2px); left: 0; min-width: 100%; width: max-content; max-width: 460px; max-height: 260px; overflow-y: auto; background: var(--paper); border: 1px solid var(--ink); box-shadow: 0 8px 24px rgba(28, 22, 16, 0.25); z-index: 60; display: none; font-family: 'JetBrains Mono', monospace; }
+  .ac-dropdown::-webkit-scrollbar { width: 6px; }
+  .ac-dropdown::-webkit-scrollbar-track { background: var(--paper-2); }
+  .ac-dropdown::-webkit-scrollbar-thumb { background: var(--border-strong); }
+  .ac-item { display: flex; gap: 10px; padding: 7px 12px; cursor: pointer; border-bottom: 1px dashed var(--border); font-size: 12px; transition: background 0.1s; align-items: baseline; }
+  .ac-item:last-child { border-bottom: none; }
+  .ac-item:hover, .ac-item.active { background: rgba(196, 88, 43, 0.1); }
+  .ac-code { font-family: 'Fraunces', serif; font-weight: 700; color: var(--accent); min-width: 95px; font-size: 13px; }
+  .ac-desc { color: var(--ink); flex: 1; line-height: 1.3; }
+  .ac-empty { padding: 14px; font-size: 12px; color: var(--muted); font-style: italic; text-align: center; }
+</style>
+</head>
+<body>
+
+<div class="floating-deco" style="top: 40%; right: -60px; transform: rotate(-90deg);">LEDGER</div>
+
+<header class="border-b border-[color:var(--border-strong)] bg-[color:var(--paper-2)]/85 backdrop-blur sticky top-0 z-30">
+  <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
+    <div class="flex items-center gap-4">
+      <div class="logo-mark">L</div>
+      <div>
+        <div class="serif text-2xl font-black tracking-tight leading-none">SHOPEE LEDGER</div>
+        <div class="text-[10px] tracking-[0.2em] text-[color:var(--ink-soft)] uppercase mt-1">Shopee-Order Registry · Document Builder</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="nav-pill">Date: <span id="todayDate" class="text-[color:var(--ink)]"></span></span>
+      <span class="nav-pill nav-pill-accent"><span id="navOrderCount">0</span> Orders Saved</span>
+    </div>
+  </div>
+</header>
+
+<section class="max-w-7xl mx-auto px-6 pt-10 pb-6 relative z-10">
+  <div class="flex flex-col md:flex-row items-start md:items-end justify-between gap-6">
+    <div>
+      <div class="hint mb-3">— Section I · Capture —</div>
+      <h1 class="serif text-5xl md:text-6xl font-black leading-[0.95]">Record your sales,<br><span class="text-[color:var(--accent)] italic font-light">order by order.</span></h1>
+      <p class="mt-4 text-[color:var(--ink-soft)] max-w-xl text-sm leading-relaxed">Key in one order, save it, move to the next. Type an item code or product name to auto-fill from the catalog. When all orders are captured, generate a single consolidated PDF.</p>
+    </div>
+    <div class="flex gap-2">
+      <button onclick="loadSample()" class="btn btn-ghost">Load Sample</button>
+      <button onclick="confirmReset()" class="btn btn-ghost">Reset All</button>
+    </div>
+  </div>
+</section>
+
+<section class="max-w-7xl mx-auto px-6 pb-6 relative z-10">
+  <div class="paper p-6 pt-8">
+    <div class="ribbon">Current Order</div>
+    <div class="flex flex-col md:flex-row items-start md:items-end justify-between gap-6">
+      <div class="flex-1">
+        <label class="hint">Order ID</label>
+        <input id="orderId" class="order-id-input" placeholder="ORD-001" oninput="autoSaveForm()">
+      </div>
+      <div class="flex flex-col gap-1">
+        <span class="hint">Status</span>
+        <span class="nav-pill" id="orderStatus">New Order</span>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="saveOrder()" class="btn btn-dark"><span class="text-base leading-none">✓</span> Save Order</button>
+        <button onclick="newOrder()" class="btn btn-ghost">+ New</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<main class="max-w-7xl mx-auto px-6 pb-12 grid grid-cols-1 lg:grid-cols-3 gap-6 relative z-10">
+  <div class="lg:col-span-2 paper p-8 pt-10 relative">
+    <div class="ribbon">Line Items</div>
+    <div class="flex items-end justify-between mb-6 mt-2 flex-wrap gap-3">
+      <div>
+        <h2 class="serif text-3xl font-bold leading-none">Item Table</h2>
+        <p class="text-xs text-[color:var(--ink-soft)] mt-2">Type in the Item Code field to search the catalog — code or product name. Selecting auto-fills the description.</p>
+      </div>
+      <div class="text-right">
+        <div class="hint">Rows in form</div>
+        <div class="serif text-4xl font-black" id="rowCount">00</div>
+      </div>
+    </div>
+    <div class="item-grid header-grid px-2 py-2 text-[10px] uppercase tracking-widest text-[color:var(--ink-soft)] border-b-2 border-[color:var(--ink)]">
+      <div>No.</div><div>Item Code</div><div>Product Description</div><div>Packing</div><div>Qty</div><div>Price (RM)</div><div></div>
+    </div>
+    <div id="rowsContainer" class="min-h-[80px]"></div>
+    <div id="emptyState" class="empty-state mt-3" style="display:none;">No items in this order yet. Click "+ Add Line" to begin.</div>
+    <div class="mt-4 flex items-center gap-3 flex-wrap">
+      <button onclick="addRow()" class="btn btn-dark"><span class="text-base leading-none">+</span> Add Line</button>
+      <span class="hint">Form auto-saves while you type</span>
+    </div>
+  </div>
+  <div class="flex flex-col gap-6">
+    <div class="paper p-8 pt-10 relative">
+      <div class="ribbon ribbon-green">Remarks</div>
+      <h2 class="serif text-3xl font-bold leading-none mt-2">Fees & Deductions</h2>
+      <p class="text-xs text-[color:var(--ink-soft)] mt-2 mb-5">Commission &amp; Service are percentages of subtotal. Transaction &amp; Platform are flat RM amounts. Values carry over to the next order.</p>
+      <div class="space-y-4">
+        <div><label class="hint">Commission Fees (%)</label><input type="number" step="0.01" min="0" id="commission" class="field-input serif text-xl font-semibold" placeholder="0.00" oninput="calculateTotals(); autoSaveForm()"></div>
+        <div><label class="hint">Service Fees (%)</label><input type="number" step="0.01" min="0" id="service" class="field-input serif text-xl font-semibold" placeholder="0.00" oninput="calculateTotals(); autoSaveForm()"></div>
+        <div><label class="hint">Transaction Fees (RM)</label><input type="number" step="0.01" min="0" id="transaction" class="field-input serif text-xl font-semibold" placeholder="0.00" oninput="calculateTotals(); autoSaveForm()"></div>
+        <div><label class="hint">Platform Fees (RM)</label><input type="number" step="0.01" min="0" id="platform" class="field-input serif text-xl font-semibold" value="0.54" oninput="calculateTotals(); autoSaveForm()"></div>
+      </div>
+      <div class="mt-6 pt-5" style="border-top: 1px dashed var(--border);">
+        <label class="hint">Additional Reference / Notes</label>
+        <textarea id="notes" class="notes-input" placeholder="Enter any additional notes, reference numbers, delivery instructions, or comments for this order..." oninput="autoSaveForm()"></textarea>
+      </div>
+    </div>
+    <div class="paper p-8 pt-10 relative">
+      <div class="ribbon">Summary</div>
+      <h2 class="serif text-3xl font-bold leading-none mt-2">Total Sum</h2>
+      <div class="totals-line mt-5 space-y-2 text-sm">
+        <div class="flex justify-between"><span class="text-[color:var(--ink-soft)]">Subtotal</span><span class="serif font-semibold" id="subtotal">RM 0.00</span></div>
+        <div class="flex justify-between"><span class="text-[color:var(--ink-soft)]">- Commission</span><span class="serif" id="commissionAmt">- RM 0.00</span></div>
+        <div class="flex justify-between"><span class="text-[color:var(--ink-soft)]">- Service</span><span class="serif" id="serviceAmt">- RM 0.00</span></div>
+        <div class="flex justify-between"><span class="text-[color:var(--ink-soft)]">- Transaction</span><span class="serif" id="transactionAmt">- RM 0.00</span></div>
+        <div class="flex justify-between"><span class="text-[color:var(--ink-soft)]">- Platform</span><span class="serif" id="platformAmt">- RM 0.00</span></div>
+      </div>
+      <div class="grand-total mt-5">
+        <div><div class="text-[10px] tracking-widest opacity-70">CURRENT ORDER TOTAL</div><div class="serif text-3xl font-black" id="totalSum">RM 0.00</div></div>
+        <div class="stamp stamp-green">DUE</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<section class="max-w-7xl mx-auto px-6 pb-12 relative z-10">
+  <div class="paper p-8 pt-10 relative">
+    <div class="ribbon ribbon-dark">Saved Orders</div>
+    <div class="flex items-end justify-between mb-6 mt-2 flex-wrap gap-3">
+      <div><h2 class="serif text-3xl font-bold leading-none">Orders Ledger</h2><p class="text-xs text-[color:var(--ink-soft)] mt-2">All saved orders for this batch. Click any card to edit.</p></div>
+      <div class="text-right"><div class="hint">Batch Grand Total</div><div class="serif text-3xl font-black" id="batchTotal">RM 0.00</div></div>
+    </div>
+    <div id="ordersGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    <div id="ordersEmpty" class="empty-state" style="display:none;">No orders saved yet. Fill the form above and click "Save Order" to add your first one.</div>
+  </div>
+</section>
+
+<section class="max-w-7xl mx-auto px-6 pb-20 relative z-10">
+  <div class="submit-section">
+    <div class="hint" style="color: rgba(251,244,225,0.6); position: relative; z-index:1;">— Section II · Commit —</div>
+    <h2 class="serif text-4xl md:text-5xl font-black mt-2 mb-3" style="position:relative; z-index:1;">Ready to commit?</h2>
+    <p class="text-sm max-w-lg mx-auto mb-6" style="color: rgba(251,244,225,0.7); position:relative; z-index:1;">Generate a single PDF containing all <span id="submitCount" class="font-bold" style="color:var(--accent-2)">0</span> saved orders, with a cover summary page and multiple orders per page.</p>
+    <button onclick="generateAllPDF()" class="submit-btn" id="submitBtn" disabled>Generate PDF — All Orders</button>
+    <div class="hint mt-4" style="color: rgba(251,244,225,0.5); position:relative; z-index:1;" id="submitHint">Save at least one order to enable submission</div>
+  </div>
+</section>
+
+<footer class="border-t border-[color:var(--border-strong)] bg-[color:var(--paper-2)]/60 relative z-10">
+  <div class="max-w-7xl mx-auto px-6 py-6 flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-[color:var(--ink-soft)]">
+    <div class="flex items-center gap-3"><div class="deco-line w-12"></div><span>Order Ledger · A document tool for careful sellers</span></div>
+    <div class="flex gap-3 tracking-widest uppercase"><span>Capture</span><span>·</span><span>Save</span><span>·</span><span>Commit</span></div>
+  </div>
+</footer>
+
+<div id="modalRoot"></div>
+
+<script>
+  // ===== Item Catalog =====
+  var ITEM_CATALOG = [
+    ['EL2002','Pitted Prune - Pouch'],['EL2000','Pitted Prune - Canister'],['EL4000','Ellita King Lychee'],['EL4010','Ellita Lychee in Syrup'],
+    ['ZE or EY','Chipotle Hot Sauce'],['ZE or EY','Caribbean Hot Sauce'],['ZE or EY','Jalapeno Hot Sauce'],['ZE or EY','Habanero Red Sauce'],
+    ['ZE or EY','Habanero Green Sauce'],['ZE or EY','XXXTRA Hot Sauce'],['FS1104','French\'s Yellow Mustard'],['HE0910','Peach Halves'],
+    ['HE0920','Peach Slices'],['IL0001','Condy Lemon'],['IL0011','Condy Lime'],['LX1212','Black Pitted Olives'],['LX1216','Black Pitted Olives'],
+    ['MO1001','Minioliva EVOO'],['MO1011','Minioliva Truffle'],['MO1012','Minioliva Chilli'],['MO1013','Minioliva Lemon'],['MO1014','Minioliva Garlic'],
+    ['MO1021','Minioliva Balsamic Vinegar'],['MT1401','Butter Popcorn'],['MT1404','Double Butter Popcorn'],['MT1406','94% Fat Free Popcorn'],
+    ['MT1408','Caramel Popcorn'],['MT1417','Sea Salt Popcorn'],['MT1403','Light Butter Popcorn'],['MT1402','Natural Popcorn'],
+    ['SC1003','S.C. Basil Pesto Truffle'],['SC1041','S.C. Truffle Oil 250ML'],['SC1031','S.C. Truffle Oil 1L'],['SC1005','S.C. Tomato with Truffle'],
+    ['SC1001','S.C. Truffle Sauce 500G'],['SC1021','S.C. Jam w/ Truffle'],['YB0106','Ybarra Pure 250ML'],['YB0108','Ybarra Pure 500ML'],
+    ['YB0110','Ybarra Pure 1L'],['YB0206','Ybarra EVOO 250ML'],['YB0208','Ybarra EVOO 500ML'],['YB0210','Ybarra EVOO 1L'],
+    ['YB1000','Ybarra Balsamic Vinegar'],['ZA8100','As-Sufi Sambal Belacan'],['ZA8112','As-Sufi Sambal Balado'],['ZA8114','As-Sufi Sambal Hijau'],
+    ['ZA8110','As-Sufi Multi-Purpose'],['ZA8116','As-Sufi Sambal Tumis'],['ZA8118','As-Sufi Ayam Penyet'],['ZA8120','As-Sufi Kuah Sate'],
+    ['ZL1001','Lyle\'s Golden Syrup'],['ZL1020','Lyle\'s Maple Syrup'],['ZL1301','Louisiana Hot Sauce'],['ZM1500','Morehouse Horseradish'],
+    ['ZS4540','Sysco Kosher Salt'],['ZW1501','Wright\'s Hickory 103ML'],['ZW1506','Wright\'s Hickory 3.78L'],['ZM1280','Moli Squid Ink Pasta'],
+    ['HE0800','H\'esthia Whole-Peeled Tomato'],['HE0802','H\'esthia Chopped Tomato'],['LX1212','Luxeapers Black Pitted Olives 330g'],
+    ['LX1216','Luxeapers Black Pitted Olives 880g'],['EL0001','Ellita Honey'],['ZM1510','Morehouse Mustard'],['ZK6200','Karo Light Corn Syrup'],
+    ['ZK6202','Karo Dark Corn Syrup'],['ZK6204','Karo Pancake Syrup'],['ELEL3002','Ellita Pink Salt'],['EL3000','Ellita White Salt'],
+    ['HE1011','H\'esthia Linguine 500g'],['HE9003','H\'esthia Spaghetti 1KG'],['LX1312','Luxeapers Black Sliced Olives 335g'],
+    ['LX2216','Luxeapers Green Pitted Olives 860g'],['LX2416','Luxeapers Green Stuffed Olives 900g'],['LX0010','Luxeapers Capers 100g'],
+    ['LX0016','Luxeapers Capers 900g'],['HE0021','H\'esthia Pomace Olive Oil'],['FB4124','Fabianelli Fettuccine Nest'],
+    ['ZL1800','Le Stagioni Arborio Rice'],['ZG4300','Garofalo Lasagne'],['ZC1610','Crown Prince Anchovies'],['ZO0015','Ocean Spray Cranberry Sauce'],
+    ['EL1000','Ellita Sliced Mushroom'],['YB1108','Ybarra Black Pitted Olives'],['YB1128','Ybarra Black Sliced Olives'],
+    ['HE0900','H\'esthia Fruit Cocktail'],['HE0910','H\'esthia Peach Halves'],['HE0920','H\'esthia Peach Slices'],['DM6303','Del Monte Ketchup'],
+    ['FB1005','Fabianelli Spaghetti'],['FB1003','Fabianelli Capellini'],['FB1041','Fabianelli Fettuccine'],['FB1020','Fabianelli Bucatini'],
+    ['FB3078','Fabianelli Abissini'],['FB2063','Fabianelli Cavatappi'],['FB2089','Fabianelli Rigatoni'],['FB3062','Fabianelli Alfabeto'],
+    ['FB2098','Fabianelli Penne'],['ZM5367','Maltagliati Fusilli Tricolore'],['ZC0601','Cattlemen\'s BBQ Sauce']
+  ];
+
+  var orders = [], rows = [], currentEditingId = null;
+
+  document.getElementById('todayDate').textContent = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
+
+  // ===== Autocomplete =====
+  function filterItems(q) { q = (q||'').toLowerCase().trim(); if (!q) return ITEM_CATALOG.slice(0,20); return ITEM_CATALOG.filter(function(it){ return it[0].toLowerCase().indexOf(q)!==-1 || it[1].toLowerCase().indexOf(q)!==-1; }).slice(0,50); }
+  function showItemDropdown(el, rowId) { var dd = document.getElementById('ac-'+rowId); if(!dd) return; var m = filterItems(el.value); activeDropdownId = rowId; if(!m.length){ dd.innerHTML='<div class="ac-empty">No matching items found</div>'; dd.style.display='block'; dd._matches=[]; dd._activeIdx=-1; return; } dd.innerHTML = m.map(function(it,i){ return '<div class="ac-item" data-idx="'+i+'"><span class="ac-code">'+escapeHtml(it[0])+'</span><span class="ac-desc">'+escapeHtml(it[1])+'</span></div>'; }).join(''); dd._matches=m; dd._activeIdx=-1; dd.style.display='block'; dd.querySelectorAll('.ac-item').forEach(function(e){ e.addEventListener('mousedown', function(ev){ ev.preventDefault(); var idx=parseInt(this.dataset.idx); var match=dd._matches[idx]; if(match) selectItem(rowId, match[0], match[1]); }); }); }
+  function hideItemDropdown(rowId) { var dd=document.getElementById('ac-'+rowId); if(dd) dd.style.display='none'; }
+  function hideAllDropdowns() { document.querySelectorAll('.ac-dropdown').forEach(function(d){ d.style.display='none'; }); activeDropdownId=null; }
+  function selectItem(rowId, code, desc) { var row = rows.find(function(r){return r.id===rowId;}); if(row){ row.itemCode=code; row.description=desc; autoSaveForm(); } var el=document.querySelector('[data-rowid="'+rowId+'"]'); if(el){ var ci=el.querySelector('.ac-code-input'); var di=el.querySelector('.desc-input'); if(ci)ci.value=code; if(di)di.value=desc; } hideItemDropdown(rowId); calculateTotals(); }
+  function handleAcKey(e, rowId) { var dd=document.getElementById('ac-'+rowId); if(!dd||dd.style.display==='none')return; var items=dd.querySelectorAll('.ac-item'); if(!items.length)return; var ai=dd._activeIdx||-1; if(e.key==='ArrowDown'){e.preventDefault();ai=Math.min(ai+1,items.length-1);updateAcActive(items,ai);dd._activeIdx=ai;}else if(e.key==='ArrowUp'){e.preventDefault();ai=Math.max(ai-1,0);updateAcActive(items,ai);dd._activeIdx=ai;}else if(e.key==='Enter'){if(ai>=0){e.preventDefault();var m=dd._matches[ai];if(m)selectItem(rowId,m[0],m[1]);}else hideItemDropdown(rowId);}else if(e.key==='Escape'){e.preventDefault();hideItemDropdown(rowId);} }
+  function updateAcActive(items, idx) { items.forEach(function(el,i){ if(i===idx){el.classList.add('active');el.scrollIntoView({block:'nearest'});}else{el.classList.remove('active');} }); }
+  document.addEventListener('click', function(e) { if(!e.target.closest('.ac-wrap')) hideAllDropdowns(); });
+
+  // ===== Rows =====
+  function addRow(d) { d=d||{}; rows.push({ id:'r'+Date.now()+Math.random().toString(36).slice(2,6), itemCode:d.itemCode||'', description:d.description||'', packing:d.packing||'', qty:d.qty!==undefined?d.qty:'', price:d.price!==undefined?d.price:'' }); renderTable(); calculateTotals(); autoSaveForm(); }
+  function renderTable() { var c=document.getElementById('rowsContainer'), e=document.getElementById('emptyState'); document.getElementById('rowCount').textContent=String(rows.length).padStart(2,'0'); if(!rows.length){c.innerHTML='';e.style.display='block';return;} e.style.display='none'; c.innerHTML=rows.map(function(r,i){ return '<div class="row fade-up item-grid border-b border-dashed border-[color:var(--border)]" data-rowid="'+r.id+'"><div class="row-num">'+String(i+1).padStart(2,'0')+'</div><div class="ac-wrap"><input class="field-input ac-code-input" placeholder="Type code or name..." value="'+escapeHtml(r.itemCode)+'" oninput="updateRow(\''+r.id+'\', \'itemCode\', this.value); showItemDropdown(this, \''+r.id+'\')" onfocus="showItemDropdown(this, \''+r.id+'\')" onkeydown="handleAcKey(event, \''+r.id+'\')" onblur="setTimeout(function(){ hideItemDropdown(\''+r.id+'\'); }, 150)" autocomplete="off"><div class="ac-dropdown" id="ac-'+r.id+'"></div></div><input class="field-input desc-input" placeholder="Product name & specification" value="'+escapeHtml(r.description)+'" oninput="updateRow(\''+r.id+'\', \'description\', this.value)"><input class="field-input" placeholder="e.g. 12/ctn" value="'+escapeHtml(r.packing)+'" oninput="updateRow(\''+r.id+'\', \'packing\', this.value)"><input class="field-input qty-input" type="number" min="0" step="1" placeholder="0" value="'+r.qty+'" oninput="updateRow(\''+r.id+'\', \'qty\', this.value)"><input class="field-input qty-input" type="number" min="0" step="0.01" placeholder="0.00" value="'+r.price+'" oninput="updateRow(\''+r.id+'\', \'price\', this.value)"><button class="delete-btn" onclick="deleteRow(\''+r.id+'\')" title="Delete row">x</button></div>'; }).join(''); }
+  function escapeHtml(s) { if(s===undefined||s===null)return''; return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  function updateRow(id, f, v) { var r=rows.find(function(x){return x.id===id;}); if(r){r[f]=v; if(f==='qty'||f==='price')calculateTotals(); autoSaveForm();} }
+  function deleteRow(id) { rows=rows.filter(function(r){return r.id!==id;}); renderTable(); calculateTotals(); autoSaveForm(); }
+
+  // ===== Calc =====
+  function calculateTotals() { var st=rows.reduce(function(s,r){var q=parseFloat(r.qty)||0,p=parseFloat(r.price)||0;return s+q*p;},0); var c=parseFloat(document.getElementById('commission').value)||0,sv=parseFloat(document.getElementById('service').value)||0,t=parseFloat(document.getElementById('transaction').value)||0,p=parseFloat(document.getElementById('platform').value)||0; var cA=st*c/100, sA=st*sv/100, tA=t, tot=st-cA-sA-tA-p; document.getElementById('subtotal').textContent=formatCurrency(st); document.getElementById('commissionAmt').textContent='- '+formatCurrency(cA); document.getElementById('serviceAmt').textContent='- '+formatCurrency(sA); document.getElementById('transactionAmt').textContent='- '+formatCurrency(tA); document.getElementById('platformAmt').textContent='- '+formatCurrency(p); document.getElementById('totalSum').textContent=formatCurrency(tot); }
+  function formatCurrency(n) { return 'RM '+Math.abs(n).toFixed(2); }
+  function computeOrderTotals(o) { var st=o.rows.reduce(function(s,r){return s+(parseFloat(r.qty)||0)*(parseFloat(r.price)||0);},0); var c=parseFloat(o.remarks.commission)||0,sv=parseFloat(o.remarks.service)||0,t=parseFloat(o.remarks.transaction)||0,p=parseFloat(o.remarks.platform)||0; var cA=st*c/100, sA=st*sv/100, tA=t, tot=st-cA-sA-tA-p; return {subtotal:st,commissionAmt:cA,serviceAmt:sA,transactionAmt:tA,platform:p,total:tot,commission:c,service:sv}; }
+
+  // ===== Orders =====
+  function generateNextOrderId() { var ns=orders.map(function(o){var m=(o.orderId||'').match(/(\d+)/);return m?parseInt(m[1]):0;}); var mx=ns.length?Math.max.apply(null,ns):0; return 'ORD-'+String(mx+1).padStart(3,'0'); }
+  function saveOrder() { if(!rows.length){showToast('Add at least one item before saving');return;} var id=document.getElementById('orderId').value.trim()||generateNextOrderId(); if(!currentEditingId&&orders.some(function(o){return o.orderId===id;})){showToast('Order ID already exists');return;} var o={id:currentEditingId||('o'+Date.now()+Math.random().toString(36).slice(2,6)),orderId:id,date:new Date().toISOString(),rows:rows.map(function(r){return{...r};}),remarks:{commission:document.getElementById('commission').value,service:document.getElementById('service').value,transaction:document.getElementById('transaction').value,platform:document.getElementById('platform').value,notes:document.getElementById('notes').value}}; if(currentEditingId){var i=orders.findIndex(function(x){return x.id===currentEditingId;});if(i>=0)orders[i]=o;showToast('Order '+id+' updated');}else{orders.push(o);showToast('Order '+id+' saved ('+orders.length+' total)');} saveOrders();renderOrders();newOrder(false); }
+  function newOrder(clr) { rows=[];currentEditingId=null;document.getElementById('orderId').value=generateNextOrderId();document.getElementById('orderStatus').textContent='New Order';if(clr){document.getElementById('commission').value='';document.getElementById('service').value='';document.getElementById('transaction').value='';document.getElementById('platform').value='0.54';document.getElementById('notes').value='';}renderTable();calculateTotals();autoSaveForm();renderOrders(); }
+  function editOrder(id) { var o=orders.find(function(x){return x.id===id;});if(!o)return;currentEditingId=id;rows=o.rows.map(function(r){return{id:'r'+Date.now()+Math.random().toString(36).slice(2,6),itemCode:r.itemCode,description:r.description,packing:r.packing,qty:r.qty,price:r.price};});document.getElementById('orderId').value=o.orderId;document.getElementById('commission').value=o.remarks.commission;document.getElementById('service').value=o.remarks.service;document.getElementById('transaction').value=o.remarks.transaction;document.getElementById('platform').value=o.remarks.platform;document.getElementById('notes').value=o.remarks.notes||'';document.getElementById('orderStatus').textContent='Editing';renderTable();calculateTotals();renderOrders();autoSaveForm();document.getElementById('orderId').scrollIntoView({behavior:'smooth',block:'center'}); }
+  function deleteOrder(id) { var o=orders.find(function(x){return x.id===id;});if(!o)return;showModal('Delete Order?','Order <strong>'+escapeHtml(o.orderId)+'</strong> will be permanently removed.',function(){orders=orders.filter(function(x){return x.id!==id;});if(currentEditingId===id)newOrder(false);saveOrders();renderOrders();showToast('Order deleted');},'Delete'); }
+  function renderOrders() { var g=document.getElementById('ordersGrid'),e=document.getElementById('ordersEmpty');document.getElementById('navOrderCount').textContent=orders.length;document.getElementById('submitCount').textContent=orders.length;var bt=orders.reduce(function(s,o){return s+computeOrderTotals(o).total;},0);document.getElementById('batchTotal').textContent=formatCurrency(bt);var sb=document.getElementById('submitBtn'),sh=document.getElementById('submitHint');if(orders.length>0){sb.disabled=false;sh.textContent=orders.length+' order(s) ready - click to generate PDF';}else{sb.disabled=true;sh.textContent='Save at least one order to enable submission';}if(!orders.length){g.innerHTML='';e.style.display='block';return;}e.style.display='none';g.innerHTML=orders.map(function(o,i){var t=computeOrderTotals(o),ed=o.id===currentEditingId,fi=o.rows[0]?(o.rows[0].description||o.rows[0].itemCode||'-'):'-',hn=o.remarks.notes&&o.remarks.notes.trim().length>0,np=hn?o.remarks.notes.trim().substring(0,60):'';return '<div class="order-card fade-up '+(ed?'editing':'')+'"><div class="flex justify-between items-start gap-2"><div><div class="hint">Order '+(i+1)+'</div><div class="serif text-2xl font-black leading-tight">'+escapeHtml(o.orderId)+'</div></div>'+(ed?'<div class="stamp stamp-green" style="font-size:9px;padding:2px 8px;transform:rotate(-7deg);">EDITING</div>':'')+'</div><div class="mt-3 text-xs text-[color:var(--ink-soft)] flex justify-between"><span>'+o.rows.length+' item'+(o.rows.length!==1?'s':'')+'</span><span class="serif font-semibold">'+formatCurrency(t.total)+'</span></div><div class="text-xs text-[color:var(--muted)] mt-1 truncate" style="border-top:1px dashed var(--border); padding-top:8px;">'+escapeHtml(fi)+'</div>'+(hn?'<div class="text-xs text-[color:var(--ink-soft)] mt-2 truncate" style="font-style:italic; opacity:0.8;"><span class="hint" style="font-style:normal;">Note:</span> '+escapeHtml(np)+(o.remarks.notes.trim().length>60?'...':'')+'</div>':'')+'<div class="order-actions"><button class="mini-btn" onclick="editOrder(\''+o.id+'\')">Edit</button><button class="mini-btn danger" onclick="deleteOrder(\''+o.id+'\')">Delete</button></div></div>';}).join(''); }
+
+  // ===== Persistence =====
+  function saveOrders() { try{localStorage.setItem('orderLedger_orders',JSON.stringify({orders:orders,savedAt:new Date().toISOString()}));}catch(e){console.error(e);} }
+  function loadOrders() { var d=localStorage.getItem('orderLedger_orders');if(d){try{var p=JSON.parse(d);orders=p.orders||[];}catch(e){console.error(e);}} }
+  var ft; function autoSaveForm(){clearTimeout(ft);ft=setTimeout(function(){try{localStorage.setItem('orderLedger_formDraft',JSON.stringify({rows:rows,orderId:document.getElementById('orderId').value,remarks:{commission:document.getElementById('commission').value,service:document.getElementById('service').value,transaction:document.getElementById('transaction').value,platform:document.getElementById('platform').value,notes:document.getElementById('notes').value},currentEditingId:currentEditingId}));}catch(e){}},500);}
+  function loadFormDraft(){var d=localStorage.getItem('orderLedger_formDraft');if(d){try{var p=JSON.parse(d);if(p.rows&&p.rows.length>0){rows=p.rows;if(p.orderId)document.getElementById('orderId').value=p.orderId;if(p.remarks){document.getElementById('commission').value=p.remarks.commission||'';document.getElementById('service').value=p.remarks.service||'';document.getElementById('transaction').value=p.remarks.transaction||'';document.getElementById('platform').value=p.remarks.platform!==undefined&&p.remarks.platform!==''?p.remarks.platform:'0.54';document.getElementById('notes').value=p.remarks.notes||'';}currentEditingId=p.currentEditingId||null;if(currentEditingId)document.getElementById('orderStatus').textContent='Editing';renderTable();calculateTotals();return true;}}catch(e){console.error(e);}}return false;}
+
+  // ===== Modal =====
+  function showModal(t,m,fn,cl){cl=cl||'Confirm';document.getElementById('modalRoot').innerHTML='<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="paper p-8 max-w-md mx-4 relative"><div class="ribbon">Confirm</div><h3 class="serif text-2xl font-bold mt-2 mb-3">'+t+'</h3><p class="text-sm text-[color:var(--ink-soft)] mb-6 leading-relaxed">'+m+'</p><div class="flex gap-2 justify-end"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-dark" id="modalConfirmBtn">'+cl+'</button></div></div></div>';document.getElementById('modalConfirmBtn').onclick=function(){closeModal();fn();};}
+  function closeModal(){document.getElementById('modalRoot').innerHTML='';}
+  function confirmReset(){showModal('Reset Everything?','This will erase all saved orders and the current form, then reload the page.',function(){localStorage.removeItem('orderLedger_orders');localStorage.removeItem('orderLedger_formDraft');location.reload();},'Reset');}
+
+  // ===== Sample =====
+  function loadSample(){orders=[];saveOrders();var s=[{orderId:'ORD-001',rows:[{itemCode:'EL2002',description:'Pitted Prune - Pouch',packing:'12/ctn',qty:3,price:28.50},{itemCode:'MT1408',description:'Caramel Popcorn',packing:'24/ctn',qty:2,price:18.00}],remarks:{commission:'8',service:'3',transaction:'2.50',platform:'0.54',notes:'Customer requested gift wrapping. Rush order - ship by Friday.'}},{orderId:'ORD-002',rows:[{itemCode:'YB0210',description:'Ybarra EVOO 1L',packing:'6/ctn',qty:4,price:64.00}],remarks:{commission:'8',service:'3',transaction:'2.50',platform:'0.54',notes:'Repeat customer. Include thank-you card with shipment.'}},{orderId:'ORD-003',rows:[{itemCode:'FB2098',description:'Fabianelli Penne',packing:'24/box',qty:5,price:42.00},{itemCode:'SC1041',description:'S.C. Truffle Oil 250ML',packing:'12/box',qty:3,price:55.00},{itemCode:'ZA8100',description:'As-Sufi Sambal Belacan',packing:'50/box',qty:6,price:18.00}],remarks:{commission:'15',service:'5',transaction:'3.00',platform:'0.54',notes:'Wholesale batch. Net 30 payment terms. Reference: PO-2024-0815.'}}];s.forEach(function(x){orders.push({id:'o'+Date.now()+Math.random().toString(36).slice(2,6),orderId:x.orderId,date:new Date().toISOString(),rows:x.rows.map(function(r){return{...r,id:'r'+Date.now()+Math.random().toString(36).slice(2,6)};}),remarks:x.remarks});});saveOrders();renderOrders();newOrder(false);showToast('3 sample orders loaded');}
+
+  // ===== Toast =====
+  function showToast(m){var e=document.querySelector('.toast');if(e)e.remove();var t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(function(){t.style.opacity='0';t.style.transition='opacity 0.3s';setTimeout(function(){t.remove();},300);},2200);}
+
+  // ===== PDF (jsPDF — 2 orders per page) =====
+  function generateAllPDF() {
+    if(!orders.length){showToast('Save at least one order first');return;}
+    if(!window.jspdf||!window.jspdf.jsPDF){showToast('PDF library not loaded');return;}
+    if(rows.length>0){showModal('Unsaved Items in Form','The current form has unsaved items. Save or clear before generating, or proceed without those items?',function(){doGeneratePDF();},'Proceed');return;}
+    doGeneratePDF();
+  }
+
+  function doGeneratePDF() {
+    var ov=document.createElement('div');ov.className='pdf-loading-overlay';
+    ov.innerHTML='<div style="font-size:22px;letter-spacing:0.1em;font-family:Fraunces,serif;font-weight:700;">Generating PDF...</div><div style="font-size:12px;margin-top:10px;opacity:0.6;">Compiling '+orders.length+' order'+(orders.length!==1?'s':'')+'</div><div class="pdf-loading-bar"><div class="pdf-loading-bar-inner"></div></div>';
+    document.body.appendChild(ov);
+    setTimeout(function(){
+      try {
+        var jsPDF=window.jspdf.jsPDF, doc=new jsPDF('p','mm','a4');
+        var PW=210,PH=297,M=16,CW=PW-2*M;
+        var today=new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'});
+        var grandTotal=0,totalItems=0;
+        orders.forEach(function(o){grandTotal+=computeOrderTotals(o).total;totalItems+=o.rows.length;});
+        var fId=orders[0].orderId, lId=orders[orders.length-1].orderId;
+        var CI=[28,22,16],CS=[107,88,54],CA=[196,88,43],CB=[201,183,143],CP=[251,244,225],CW2=[255,255,255],CAL=[248,240,220];
+
+        // --- COVER PAGE ---
+        var y=25;
+        doc.setFont('helvetica','bold');doc.setFontSize(32);doc.setTextColor(CI[0],CI[1],CI[2]);doc.text('ORDER LEDGER',PW/2,y,{align:'center'});y+=8;
+        doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(CS[0],CS[1],CS[2]);doc.text('CONSOLIDATED SALES REPORT',PW/2,y,{align:'center'});y+=8;
+        doc.setTextColor(CA[0],CA[1],CA[2]);doc.setFontSize(10);doc.text('-- CONFIRMED --',PW/2,y,{align:'center'});
+        y=50;doc.setDrawColor(CI[0],CI[1],CI[2]);doc.setLineWidth(0.5);doc.line(M,y,PW-M,y);y+=5;
+        var mW=CW/4;doc.setFontSize(7);doc.setTextColor(CS[0],CS[1],CS[2]);
+        doc.text('DOCUMENT RANGE',M+2,y);doc.text('TOTAL ORDERS',M+mW+2,y);doc.text('TOTAL ITEMS',M+mW*2+2,y);doc.text('DATE',M+mW*3+2,y);y+=5;
+        doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(CI[0],CI[1],CI[2]);
+        doc.text(fId+' to '+lId,M+2,y);doc.text(String(orders.length),M+mW+2,y);doc.text(String(totalItems),M+mW*2+2,y);doc.text(today,M+mW*3+2,y);y+=5;
+        doc.setDrawColor(CB[0],CB[1],CB[2]);doc.setLineWidth(0.3);doc.line(M,y,PW-M,y);y+=10;
+        doc.setFont('helvetica','bold');doc.setFontSize(7);doc.setTextColor(CS[0],CS[1],CS[2]);doc.text('ORDER SUMMARY',M,y);y+=5;
+        var sC={no:12,id:35,item:0,count:20,total:30};sC.item=CW-sC.no-sC.id-sC.count-sC.total;
+        doc.setFillColor(CI[0],CI[1],CI[2]);doc.rect(M,y,CW,7,'F');doc.setTextColor(CW2[0],CW2[1],CW2[2]);doc.setFont('helvetica','bold');doc.setFontSize(7);
+        var sx=M;doc.text('NO.',sx+1,y+5);sx+=sC.no;doc.text('ORDER ID',sx+1,y+5);sx+=sC.id;doc.text('FIRST ITEM / DESCRIPTION',sx+1,y+5);sx+=sC.item;doc.text('ITEMS',sx+sC.count-1,y+5,{align:'right'});sx+=sC.count;doc.text('TOTAL (RM)',sx+sC.total-1,y+5,{align:'right'});y+=7;
+        var sH=6,sT=y;doc.setTextColor(CI[0],CI[1],CI[2]);
+        orders.forEach(function(o,i){var t=computeOrderTotals(o);var fi=o.rows[0]?(o.rows[0].description||o.rows[0].itemCode||'-'):'-';if(i%2===1){doc.setFillColor(CAL[0],CAL[1],CAL[2]);doc.rect(M,y,CW,sH,'F');}sx=M;doc.setFont('helvetica','bold');doc.setTextColor(CA[0],CA[1],CA[2]);doc.text(String(i+1).padStart(2,'0'),sx+1,y+4.5);sx+=sC.no;doc.setTextColor(CI[0],CI[1],CI[2]);doc.text(o.orderId,sx+1,y+4.5);sx+=sC.id;doc.setFont('helvetica','normal');doc.text(doc.splitTextToSize(fi,sC.item-4)[0],sx+1,y+4.5);sx+=sC.item;doc.text(String(o.rows.length),sx+sC.count-1,y+4.5,{align:'right'});sx+=sC.count;doc.setFont('helvetica','bold');doc.text(t.total.toFixed(2),sx+sC.total-1,y+4.5,{align:'right'});y+=sH;});
+        doc.setDrawColor(CI[0],CI[1],CI[2]);doc.setLineWidth(0.2);doc.rect(M,sT-7,CW,y-sT+7);y+=8;
+        var gW=CW*0.5,gX=PW-M-gW;doc.setFillColor(CI[0],CI[1],CI[2]);doc.rect(gX,y,gW,13,'F');doc.setTextColor(CW2[0],CW2[1],CW2[2]);doc.setFont('helvetica','normal');doc.setFontSize(8);doc.text('GRAND TOTAL',gX+4,y+8.5);doc.setFont('helvetica','bold');doc.setFontSize(18);doc.text('RM '+grandTotal.toFixed(2),gX+gW-4,y+9,{align:'right'});
+        doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(CS[0],CS[1],CS[2]);doc.text('-- END OF SUMMARY - DETAILED ORDERS FOLLOW --',PW/2,PH-25,{align:'center'});doc.setDrawColor(CB[0],CB[1],CB[2]);doc.setLineWidth(0.2);doc.line(M,PH-20,PW-M,PH-20);doc.text('GENERATED BY ORDER LEDGER',M,PH-16);doc.text(new Date().toLocaleString('en-GB'),PW-M,PH-16,{align:'right'});
+
+        // --- ORDERS (2 per page) ---
+        doc.addPage();
+        y = 20;
+        var pageBottom = PH - 16;
+        var firstOnPage = true;
+
+        // Helper: draw footer
+        function drawFooter() {
+          doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(CS[0],CS[1],CS[2]);
+          doc.setDrawColor(CB[0],CB[1],CB[2]);doc.setLineWidth(0.2);doc.line(M,PH-12,PW-M,PH-12);
+          doc.text('GENERATED BY SHOPEE LEDGER',M,PH-8);
+          doc.text(new Date().toLocaleString('en-GB'),PW-M,PH-8,{align:'right'});
+        }
+
+        // Helper: draw table header
+        function drawTableHeader() {
+          var cols={no:10,code:25,desc:0,pack:18,qty:12,price:20,amt:22};
+          cols.desc=CW-cols.no-cols.code-cols.pack-cols.qty-cols.price-cols.amt;
+          doc.setFillColor(CI[0],CI[1],CI[2]);doc.rect(M,y,CW,6,'F');
+          doc.setTextColor(CW2[0],CW2[1],CW2[2]);doc.setFont('helvetica','bold');doc.setFontSize(6);
+          var cx=M;
+          doc.text('NO.',cx+1,y+4);cx+=cols.no;
+          doc.text('ITEM CODE',cx+1,y+4);cx+=cols.code;
+          doc.text('PRODUCT DESCRIPTION',cx+1,y+4);cx+=cols.desc;
+          doc.text('PACKING',cx+1,y+4);cx+=cols.pack;
+          doc.text('QTY',cx+cols.qty-1,y+4,{align:'right'});cx+=cols.qty;
+          doc.text('PRICE',cx+cols.price-1,y+4,{align:'right'});cx+=cols.price;
+          doc.text('AMOUNT',cx+cols.amt-1,y+4,{align:'right'});
+          y+=6;
+          return cols;
+        }
+
+        orders.forEach(function(o, idx) {
+          var t = computeOrderTotals(o);
+          var hasNotes = o.remarks.notes && o.remarks.notes.trim().length > 0;
+
+          // Estimate order height
+          var estH = 10 + 6 + 4 + 6 + (o.rows.length * 5) + 2 + 6 + 4 + 23 + 10 + 4;
+          if (hasNotes) {
+            var nls = doc.splitTextToSize(o.remarks.notes.trim(), CW - 6);
+            estH += 4 + nls.length * 4 + 5 + 3;
+          }
+          if (!firstOnPage) estH += 10;
+
+          // Check if order fits on current page
+          if (!firstOnPage && y + estH > pageBottom) {
+            drawFooter();
+            doc.addPage();
+            y = 20;
+            firstOnPage = true;
+          }
+
+          // Separator between orders on same page
+          if (!firstOnPage) {
+            y += 4;
+            doc.setDrawColor(CB[0],CB[1],CB[2]);doc.setLineWidth(0.3);
+            try { doc.setLineDashPattern([2,2],0); } catch(e) {}
+            doc.line(M+30, y, PW-M-30, y);
+            try { doc.setLineDashPattern([],0); } catch(e) {}
+            doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(CB[0],CB[1],CB[2]);
+            doc.text('+', PW/2, y+1, {align:'center'});
+            y += 8;
+          }
+
+          // === Compact order header ===
+          doc.setFont('helvetica','bold');doc.setFontSize(16);doc.setTextColor(CI[0],CI[1],CI[2]);
+          doc.text(o.orderId, M, y+2);
+          doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(CS[0],CS[1],CS[2]);
+          doc.text('ORDER '+(idx+1)+' OF '+orders.length, M, y+6);
+          doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(CI[0],CI[1],CI[2]);
+          doc.text(today, PW-M, y, {align:'right'});
+          doc.setTextColor(CA[0],CA[1],CA[2]);doc.setFont('helvetica','bold');doc.setFontSize(7);
+          doc.text('-- CONFIRMED --', PW-M, y+4, {align:'right'});
+          y += 9;
+
+          // Line
+          doc.setDrawColor(CI[0],CI[1],CI[2]);doc.setLineWidth(0.4);doc.line(M,y,PW-M,y);y+=5;
+
+          // LINE ITEMS label
+          doc.setFont('helvetica','normal');doc.setFontSize(6);doc.setTextColor(CS[0],CS[1],CS[2]);
+          doc.text('LINE ITEMS', M, y);y+=4;
+
+          // Table header
+          var cols = drawTableHeader();
+          var tableTop = y;
+          doc.setTextColor(CI[0],CI[1],CI[2]);
+
+          // Table rows
+          var rowH = 5;
+          o.rows.forEach(function(r, i) {
+            // Overflow check mid-table
+            if (y > pageBottom - rowH - 2) {
+              doc.setDrawColor(CI[0],CI[1],CI[2]);doc.setLineWidth(0.2);
+              doc.rect(M, tableTop-6, CW, y-tableTop+6);
+              drawFooter();doc.addPage();y=20;
+              cols = drawTableHeader();tableTop=y;
+              doc.setTextColor(CI[0],CI[1],CI[2]);
+            }
+
+            var q=parseFloat(r.qty)||0, p=parseFloat(r.price)||0, a=q*p;
+            if(i%2===1){doc.setFillColor(CAL[0],CAL[1],CAL[2]);doc.rect(M,y,CW,rowH,'F');}
+            var cx=M;
+            doc.setFont('helvetica','bold');doc.setTextColor(CA[0],CA[1],CA[2]);
+            doc.text(String(i+1).padStart(2,'0'),cx+1,y+3.5);cx+=cols.no;
+            doc.setFont('helvetica','normal');doc.setTextColor(CI[0],CI[1],CI[2]);
+            doc.text(doc.splitTextToSize(r.itemCode||'-',cols.code-2)[0],cx+1,y+3.5);cx+=cols.code;
+            doc.text(doc.splitTextToSize(r.description||'-',cols.desc-2)[0],cx+1,y+3.5);cx+=cols.desc;
+            doc.text(doc.splitTextToSize(r.packing||'-',cols.pack-2)[0],cx+1,y+3.5);cx+=cols.pack;
+            doc.text(String(q),cx+cols.qty-1,y+3.5,{align:'right'});cx+=cols.qty;
+            doc.text(p.toFixed(2),cx+cols.price-1,y+3.5,{align:'right'});cx+=cols.price;
+            doc.setFont('helvetica','bold');doc.text(a.toFixed(2),cx+cols.amt-1,y+3.5,{align:'right'});
+            y+=rowH;
+          });
+
+          // Table border
+          doc.setDrawColor(CI[0],CI[1],CI[2]);doc.setLineWidth(0.2);
+          doc.rect(M, tableTop-6, CW, y-tableTop+6);y+=5;
+
+          // REMARKS & DEDUCTIONS
+          doc.setFont('helvetica','normal');doc.setFontSize(6);doc.setTextColor(CS[0],CS[1],CS[2]);
+          doc.text('REMARKS & DEDUCTIONS', M, y);y+=4;
+
+          var totW=CW*0.5, totX=PW-M-totW;
+          var lns=[
+            ['Subtotal','RM '+t.subtotal.toFixed(2),true],
+            ['Commission Fees ('+t.commission.toFixed(2)+'%)','- RM '+t.commissionAmt.toFixed(2),false],
+            ['Service Fees ('+t.service.toFixed(2)+'%)','- RM '+t.serviceAmt.toFixed(2),false],
+            ['Transaction Fees','- RM '+t.transactionAmt.toFixed(2),false],
+            ['Platform Fees','- RM '+t.platform.toFixed(2),false]
+          ];
+          doc.setFontSize(8);doc.setTextColor(CI[0],CI[1],CI[2]);
+          lns.forEach(function(l){
+            doc.setFont('helvetica','normal');doc.text(l[0],totX,y);
+            doc.setFont('helvetica',l[2]?'bold':'normal');doc.text(l[1],totX+totW-1,y,{align:'right'});
+            doc.setDrawColor(CB[0],CB[1],CB[2]);doc.setLineWidth(0.1);doc.line(totX,y+1.5,totX+totW,y+1.5);
+            y+=4.5;
+          });
+          y+=1;
+
+          // Total box
+          doc.setFillColor(CI[0],CI[1],CI[2]);doc.rect(totX,y,totW,10,'F');
+          doc.setTextColor(CW2[0],CW2[1],CW2[2]);doc.setFont('helvetica','normal');doc.setFontSize(7);
+          doc.text('TOTAL SUM',totX+3,y+6.5);
+          doc.setFont('helvetica','bold');doc.setFontSize(14);
+          doc.text('RM '+t.total.toFixed(2),totX+totW-3,y+7,{align:'right'});
+          y+=13;
+
+          // Notes
+          if(hasNotes){
+            y+=2;
+            doc.setFont('helvetica','normal');doc.setFontSize(6);doc.setTextColor(CS[0],CS[1],CS[2]);
+            doc.text('ADDITIONAL REFERENCE', M, y);y+=4;
+            doc.setDrawColor(CB[0],CB[1],CB[2]);doc.setFillColor(CP[0],CP[1],CP[2]);doc.setLineWidth(0.2);
+            var nls2=doc.splitTextToSize(o.remarks.notes.trim(),CW-6);
+            var nH=nls2.length*4+5;
+            doc.rect(M,y,CW,nH,'FD');
+            doc.setTextColor(CI[0],CI[1],CI[2]);doc.setFontSize(8);
+            var ny=y+4;
+            nls2.forEach(function(l){doc.text(l,M+3,ny);ny+=4;});
+            y+=nH+3;
+          }
+
+          firstOnPage = false;
+        });
+
+        // Footer on last page
+        drawFooter();
+
+        doc.save('order-ledger-batch-'+new Date().toISOString().slice(0,10)+'.pdf');
+        ov.remove();
+        showToast('PDF generated - '+orders.length+' orders');
+      } catch(err) {
+        console.error('PDF error:',err);
+        ov.remove();
+        showToast('PDF failed: '+(err.message||'unknown'));
+      }
+    }, 100);
+  }
+
+  // ===== Init =====
+  window.addEventListener('DOMContentLoaded', function() {
+    loadOrders();
+    if(!loadFormDraft()){document.getElementById('orderId').value=generateNextOrderId();document.getElementById('platform').value='0.54';addRow();}
+    renderOrders();
+  });
+</script>
+
+</body>
+</html>
